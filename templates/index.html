@@ -1,0 +1,272 @@
+<html>
+  <head>
+    <title>Kippo Log Analysis</title>
+
+    <!-- BOOTSTRAP -->
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css">
+
+    <!-- Optional theme -->
+    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-theme.min.css">
+
+    <!-- Latest compiled and minified JavaScript -->
+    <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+
+    <!-- GOOGLE CHARTS -->
+
+    <script type='text/javascript' src='https://www.google.com/jsapi'></script>
+    <script type='text/javascript'>
+     google.load('visualization', '1', {'packages': ['geochart']});
+     google.load("visualization", "1", {packages:["corechart"]});
+
+     google.setOnLoadCallback(drawRegionsMap);
+     google.setOnLoadCallback(drawChartDurations);
+     google.setOnLoadCallback(drawChartAsn);
+     google.setOnLoadCallback(drawChartAccount);
+     google.setOnLoadCallback(drawChartPassword);
+     google.setOnLoadCallback(drawChartDaily);
+
+      function drawRegionsMap() {
+        var mapdata = google.visualization.arrayToDataTable([
+          ['Country', 'Distinct Client IPs'],
+          {% for k, v in by_cc.iteritems() %}
+          [ '{{ k }}', {{ v }}],
+          {% endfor %}
+        ]);
+
+        var mapoptions = {};
+
+        var mapchart = new google.visualization.GeoChart(document.getElementById('map_div'));
+        mapchart.draw(mapdata, mapoptions);
+    };
+
+     function drawChartDurations() {
+        var durationsdata = google.visualization.arrayToDataTable([
+          ['Duration in Seconds', 'Count'],
+          {% for k,v in durations %}
+          [ '{{ k }}', {{ v }}],
+          {% endfor %}
+        ]);
+
+        var durationoptions = {
+          title: 'Honeypot Session Durations',
+          hAxis: {title: 'Seconds', titleTextStyle: {color: 'red'}},
+          vAxis: {logScale: true},
+        };
+
+        var durationchart = new google.visualization.ColumnChart(document.getElementById('duration_div'));
+        durationchart.draw(durationsdata, durationoptions);
+      }
+
+      function drawChartAsn() {
+        var asndata = google.visualization.arrayToDataTable([
+          ['ASN', 'Count'],
+          {% for asn, n in top_asns %}
+          [ '{{ asn }}', {{ n }}],
+          {% endfor %}
+        ]);
+
+        var asnoptions = {
+          title: 'Top Client ASNs',
+        };
+
+        var asnchart = new google.visualization.PieChart(document.getElementById('asnchart'));
+        asnchart.draw(asndata, asnoptions);
+      }
+
+      function drawChartAccount() {
+        var accountdata = google.visualization.arrayToDataTable([
+          ['Account', 'Count'],
+          {% for account, n in top_accounts %}
+          [ '{{ account }}', {{ n }}],
+          {% endfor %}
+        ]);
+
+        var accountoptions = {
+          title: 'Top Attempted Account',
+        };
+
+        var accountchart = new google.visualization.PieChart(document.getElementById('accountchart'));
+        accountchart.draw(accountdata, accountoptions);
+      }
+
+      function drawChartPassword() {
+        var passworddata = google.visualization.arrayToDataTable([
+          ['Password', 'Count'],
+          {% for password, n in top_passwords %}
+          [ '{{ password }}', {{ n }}],
+          {% endfor %}
+        ]);
+
+        var passwordoptions = {
+          title: 'Top Attempted Password',
+        };
+
+        var passwordchart = new google.visualization.PieChart(document.getElementById('passwordchart'));
+        passwordchart.draw(passworddata, passwordoptions);
+      }
+
+      function drawChartDaily() {
+        var dailydata = google.visualization.arrayToDataTable([
+          ['Date', 'Failures', 'Successes'],
+          {% for date, D in daily_activity %}
+          [ '{{ date }}', {{ D['failed'] }}, {{ D['succeeded'] }} ],
+          {% endfor %}
+        ]);
+
+        var dailyoptions = {
+          title: 'Honeypot Activity',
+          vAxis: {logScale: true},
+        };
+
+        var dailychart = new google.visualization.LineChart(document.getElementById('daily_div'));
+        dailychart.draw(dailydata, dailyoptions);
+      }
+
+    </script>
+
+    <!-- D3 stuff -->
+    <script src="http://d3js.org/d3.v2.min.js?2.9.1"></script>
+    <script src="http://bost.ocks.org/mike/sankey/sankey.js"></script>
+    <script>
+var margin = {top: 1, right: 1, bottom: 6, left: 1},
+    width = 960 - margin.left - margin.right,
+    height = 500 - margin.top - margin.bottom;
+
+var formatNumber = d3.format(",.0f"),
+    format = function(d) { return formatNumber(d) + " TWh"; },
+    color = d3.scale.category20();
+
+var svg = d3.select("#chart").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+var sankey = d3.sankey()
+    .nodeWidth(15)
+    .nodePadding(10)
+    .size([width, height]);
+
+var path = sankey.link();
+
+d3.json("transitions.json", function(energy) {
+
+  sankey
+      .nodes(energy.nodes)
+      .links(energy.links)
+      .layout(32);
+
+  var link = svg.append("g").selectAll(".link")
+      .data(energy.links)
+    .enter().append("path")
+      .attr("class", "link")
+      .attr("d", path)
+      .style("stroke-width", function(d) { return Math.max(1, d.dy); })
+      .sort(function(a, b) { return b.dy - a.dy; });
+
+  link.append("title")
+      .text(function(d) { return d.source.name + " � " + d.target.name + "\n" + format(d.value); });
+
+  var node = svg.append("g").selectAll(".node")
+      .data(energy.nodes)
+    .enter().append("g")
+      .attr("class", "node")
+      .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
+    .call(d3.behavior.drag()
+      .origin(function(d) { return d; })
+      .on("dragstart", function() { this.parentNode.appendChild(this); })
+      .on("drag", dragmove));
+
+  node.append("rect")
+      .attr("height", function(d) { return d.dy; })
+      .attr("width", sankey.nodeWidth())
+      .style("fill", function(d) { return d.color = color(d.name.replace(/ .*/, "")); })
+      .style("stroke", function(d) { return d3.rgb(d.color).darker(2); })
+    .append("title")
+      .text(function(d) { return d.name + "\n" + format(d.value); });
+
+  node.append("text")
+      .attr("x", -6)
+      .attr("y", function(d) { return d.dy / 2; })
+      .attr("dy", ".35em")
+      .attr("text-anchor", "end")
+      .attr("transform", null)
+      .text(function(d) { return d.name; })
+    .filter(function(d) { return d.x < width / 2; })
+      .attr("x", 6 + sankey.nodeWidth())
+      .attr("text-anchor", "start");
+
+  function dragmove(d) {
+    d3.select(this).attr("transform", "translate(" + d.x + "," + (d.y = Math.max(0, Math.min(height - d.dy, d3.event.y))) + ")");
+    sankey.relayout();
+    link.attr("d", path);
+  }
+});
+
+</script>
+
+  </head>
+  <body>
+    <div class="container">
+      <div class="navbar-header">
+        <ul class="nav navbar-nav">
+          <li class="active"><a href="#">Top</a></li>
+          <li class="active"><a href="#activity">Activity</a></li>
+          <li class="active"><a href="#clients">Client IPs</a></li>
+          <li class="active"><a href="#credentials">Credentials</a></li>
+          <li class="active"><a href="#commands">Commands</a></li>
+          <li class="active"><a href="#durations">Durations</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="jumbotron">
+
+        <h1>Kippo Log Analysis</h1>
+        <small>Jose Nazario, September, 2013</small>
+        <p>
+        I analyzed my Kippo SSH honeypot logs (which reside on a broadband /32 in the US) and found some interesting tidbits. The data here comes from that personal server I'm running, and about ten months of data. Processing was done using some custom scripts I wrote, one of which is available (see below).
+        </p>
+        <h3>What is Kippo?</h3>
+        <p><a href="https://code.google.com/p/kippo/">Kippo</a> is a medium-interaction SSH honeypot. It provides a fake (simulated) Debian Linux system to attackers to let them poke around by presenting, via an emulated Bash shell, a filesystem and such. The goal is to learn about the hackesr, find their tools and see what they're up to. I have yet to find a true 0-day, but that would be one of the goals of this acivity. Typically I find standard SSH brute force botnets.</p>
+
+        <a name="activity"></a>
+        <h2>Daily Activity</h2>
+        <p>One of the key questions is <em>how many attempts do we see on a daily basis?</em> I decided a simple line graph showing connections, failed and successful, per day would be a good way to quickly judge. The Y axis is a log scale because otherwise it drowns out the successes. I see some people have tons of inbound successful connections and I wonder <em>how?</em> Do they use obvious passwords (see below)? Should I do that to get more data?
+        <div id="daily_div" style="width: 900px; height: 500px;"></div>
+        <p>Anyhow, you can also see sporadic activity from this graph, and of course the time range I'm studying.</p>
+
+        <a name="clients"></a>
+        <h2>Client IP Locations</h2>
+        <p>Obviously one of the types of analysis you would like to do is to look at where the clients are coming from. To produce the map below, Kippo logs were analyzed using the <a href="http://www.team-cymru.org/Services/ip-to-asn.html">Team Cymru IP mapping service</a>, a free service that can yield some basic information about IPs. Distinct IPs were mapped to counties and counts accumulated. Note that if an IP keeps on trying we count it as one distinct IP.</p>
+        <p>You can hover over individual countries to see the unique IP counts.</a>
+        <div id="map_div" style="width: 900px; height: 500px;"></div>
+
+        <p>Origin ASNs are also interesting, they can help you spot "bad" or "unclean" ASNs pretty quickly. Some of the usual suspects are here. I expected this list to be dominated by residential and hosting farm ASNs.</p>
+        <div id="asnchart" style="width: 900px; height: 500px;"></div>
+
+        <a name="credentials"></a>
+        <h2>Attempted Credentials</h2>
+        People try and get into Kippo by <em>brute forcing</em> their way in, that is guessing username and password combinations. This can give you insights into various things like default passwords, compromised accounts, and the like.
+        <div id="accountchart" style="width: 900px; height: 500px;"></div>
+        <p>You can see how dead simple some of the tools are, they keep trying stupidly simple passwords. It's tempting to put the most obvious password(s) in your Kippo pot, but I worry about being too obvious.</p>
+        <div id="passwordchart" style="width: 900px; height: 500px;"></div>
+
+        <a name="commands"></a>
+        <h2>Session Commands</h2>
+        <p>As part of my analysis I decided to perform some <em>stochastic</em> analysis on the commands people issue in the honeypot. Basically it works like this: for every command in a sequence, figure out the probability they'll issue some specific command next. You can imagine using it to build information about compromises (e.g. shell-based anomaly detection), reactions to intruders, or improving the honeypot (for example "why do people exit?"). I think this warrants some further study. <a href="https://gist.github.com/anonymous/6516335">The script</a> is avalable if you wish to explore it.
+        <a href="http://monkey.org/~jose/honeynet/kippo/ssh.png"><img src="http://monkey.org/~jose/honeynet/kippo/ssh.png" width="600"/></a>
+        <br clear="all" /><small>Click image to magnify</small>
+        <p>This graphic needs to be cleaned up and rendered to convey more information. Any help appreciated.</p>
+
+        <a name="durations"></a>
+        <h2>Session Durations</h2>
+        <p>One of my key metrics is how long I can entice an attacker to hang around the fake environment. My assumption is that a more convincing environment will keep them using it longer, which means I can get more information about them and their methods, tools, etc. By anayzing my logs, I can see that most of the sessions are very short duration, which makes me wonder: do they know it's a honeypot? Or will they come back later?</p>
+        <div id="duration_div" style="width: 900px; height: 500px;"></div>
+      </div>
+Copyright &copy; 2013 Jose Nazario, all rights reserved.
+    </div>
+  </body>
+</html>
